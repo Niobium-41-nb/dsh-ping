@@ -156,4 +156,6 @@ node --experimental-strip-types tests/toast.e2e.mjs     # 10 项：真弹通知�
 **改完代码要让 profile 用上新构建**：pnpm 对 `file:` 依赖是按内容快照装的，直接再跑 `add` 会说
 "Already up to date"。要 `remove` 再 `add`，然后重启 DSH。
 
+接下来要做什么，见 [ROADMAP.md](ROADMAP.md)；工作区级的硬规则与验证手册见 `../AGENTS.md`。
+
 详见 [DESIGN.md](DESIGN.md)。
