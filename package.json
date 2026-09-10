@@ -1,0 +1,60 @@
+{
+  "name": "dsh-ping",
+  "version": "0.1.0",
+  "description": "Desktop notifications for DeepSeek Harness: a Windows toast (plus console line and optional webhook) the moment a turn finishes, an agent errors, or the agent is waiting on your approval or answer",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./smoke": "./lib/smoke.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-ping": "./bin/dsh-ping.mjs"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "cordis.patch.yml",
+    "README.md",
+    "DESIGN.md"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "@types/node": "^22.20.0",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "notification",
+    "toast",
+    "windows",
+    "attention"
+  ]
+}

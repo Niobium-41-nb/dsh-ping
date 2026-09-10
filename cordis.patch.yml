@@ -1,0 +1,8 @@
+# dsh-ping bundle layer: mount the desktop-notification plugin.
+#
+# The plugin watches host events only (turn end, agent error, pending approval,
+# pending question) and has no browser half, so it cannot affect what the Web
+# client loads.
+- insert:
+    - id: dsh-ping
+      name: 'dsh-ping'
