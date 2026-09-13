@@ -2,6 +2,10 @@
   "name": "dsh-ping",
   "version": "0.1.0",
   "description": "Desktop notifications for DeepSeek Harness: a Windows toast (plus console line and optional webhook) the moment a turn finishes, an agent errors, or the agent is waiting on your approval or answer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Niobium-41-nb/dsh-ping.git"
+  },
   "license": "MIT",
   "private": true,
   "type": "module",
