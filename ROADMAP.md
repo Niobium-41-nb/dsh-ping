@@ -90,9 +90,13 @@
    因为这个插件刻意不依赖任何本地包（README 里承诺过）。
 2. **CI**：typecheck + `decide`/`plugin` 单测；**`toast.e2e.mjs` 必须排除**（需要 Windows + 真实桌面 + 会打扰人）。
 3. **CHANGELOG**。
-4. **发布到 npm**（2026-09-11 起挂账）：npm 上的 `dsh-ping` 属于别人（yoyu-dev），只能以
-   `@vanadium-23/dsh-ping` 发布；脚本 `../.scratch/publish-npm.mjs` 负责临时改名与还原。
-   当前卡在 2FA，状态见 `../AGENTS.md` 第 4.3 节。
+4. **发布到 npm**（2026-09-11 起挂账，2026-09-13 更新结论）：npm 上的 `dsh-ping` 属于别人
+   （yoyu-dev），只能以 `@vanadium-23/dsh-ping` 发布；脚本 `../.scratch/publish-npm.mjs`
+   负责临时改名与还原（manifest 已补 `repository`）。
+   **卡的不是 token**：9-13 实测当前那枚带 `bypass_2fa` 的 token 能读不能发布（npm `EOTP` /
+   pnpm `ERR_PNPM_OTP_NON_INTERACTIVE`），缺的是**一次交互式 2FA**。做法：在真终端里跑
+   `node ../.scratch/publish-npm.mjs`（pnpm 会提示输入动态码），或先 `npm login --auth-type=web`。
+   状态与长期方案见 `../AGENTS.md` 第 4.3 节与硬规则 22。
 
 ---
 
