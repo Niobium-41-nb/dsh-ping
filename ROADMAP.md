@@ -9,19 +9,18 @@
 
 ## P0 — 收尾：两件已经"能用"但还不够稳的事
 
-### 0.1 webhook 通道没有测试
+### 0.1 webhook 通道没有测试 —— ✅ 已完成（2026-09-14）
 
-**现状**：`channels.ts` 里的 `sendWebhook` 只有代码路径，没有测试覆盖；
-`plugin.test.mjs` 里 webhook 是关着的（默认配置就是关的）。
+**做法（已实现）**：新增 `tests/webhook.test.mjs`（26 项），每个用例都跑在**真实
+`node:http` 服务**上（"实际有没有 POST 出去、失败时是不是安静的"这种性质，mock 证明不了）：
 
-**为什么值得做**：这是唯一的"离开本机"的通知通道，用户不在电脑前时全靠它；
-而它现在完全没被验证过（超时、非 2xx、连接失败三种错误路径都只写了日志）。
-
-**验收**：起一个本地 HTTP 服务当 webhook 端点，断言：
-- 收到 `{kind, title, lines, sessionId, at}`；
-- 非 2xx 时只记日志、不抛；
-- 超时时不卡住调用方（`webhookTimeoutMs`）；
-- 端点挂掉时其余通道照常工作。
+- `sendWebhook` 直测：POST + `content-type: application/json` + 正文与 payload 逐字节一致；
+  2xx 不记日志；非 2xx 记一行 `webhook answered 503` 且不抛；
+  拒连立刻 settle；服务器挂起时**按 `webhookTimeoutMs` 收口**（120 ms 预算、2 秒内返回），
+  不等默认 5 秒；空 url 是 no-op。
+- 插件装配层：真发一条 `running → idle` 之后端点确实收到
+  `{kind:'done', title, lines, sessionId, at}`；端点返回 500 时 **console 通道照常**、
+  stderr 有记录、事件总线没有被异常打穿；`webhookUrl` 为空或通道关闭时一个请求都不发。
 
 ### 0.2 `captureEnvironment` 的默认值需要重新决策
 
@@ -43,22 +42,30 @@
 
 ## P1 — 让它更"只在该提醒的时候提醒"
 
-### 1.1 只在用户没看页面时通知（最想要的一项）
+### 1.1 只在用户没看页面时通知 —— ✅ 已完成（2026-09-14）
 
-**现状**：宿主侧拿不到浏览器焦点，只能用回合时长近似（`minTurnDurationMs` 默认 20 秒）。
-副作用：一个 25 秒的任务，即使你一直盯着屏幕也会弹一次。
+**做法（已实现）**：见 `DESIGN.md` 第 8 节。`client/index.js`（手写 lazy-CJS，**一个包都不
+`require`**、不注册插槽、不渲染）在 visibilitychange / focus / blur 与 15 秒心跳时把
+`{visible, focused}` POST 到同源路由 `/dsh-ping/presence`；宿主侧 `src/presence.ts` 校验
+（两个字段必须是布尔）、盖宿主时钟、按 `presenceTtlMs`（默认 45 秒）判新鲜；
+`shouldNotify` 在冷却之后、时长闸之前插一条**只对 `done`** 的抑制。
+没有信号 = 不抑制，所以标签页关掉 / 页面崩掉 / 宿主还没重启过，行为与以前完全一致。
+新配置：`suppressWhenFocused`（默认 true）、`presenceTtlMs`（默认 45000）。
 
-**做法**：加一个客户端半边，用 `document.hasFocus()` / `visibilitychange` 维护
-"页面是否在前台"，通过宿主路由告知插件；插件在"前台且有焦点"时抑制 `done` 类通知
-（**不该抑制** `error` / `approval` / `question`）。
+**验收证据**：
+- `tests/presence.test.mjs` 25 项（解析、ttl 边界、宿主时钟、体积上限）；
+- `tests/decide.test.mjs` 59 → 69 项（前台抑制只压 `done`；三类 attention 事件不受影响；
+  没信号退回时长闸；顺序是 冷却 > 前台 > 时长）；
+- `tests/plugin.test.mjs` 43 → 68 项（路由注册、method/体积/类型拒绝、静音与 ttl 恢复、
+  路由冲突不影响通知、关掉开关时根本不注册路由）；
+- `tests/client.test.mjs` 34 项（事件与心跳、payload 逐字节、二次 apply 不叠定时器、
+  fetch 抛错/被拒、`hasFocus` 抛异常、没有 `setInterval` —— 全都不许炸）；
+- `tests/presence.browser.mjs` 14 项：**真 Chrome + 真页面**，断言首次上报、blur 后
+  `focused:false`、隐藏后 `visible:false`、回来又是 `true,true`。它只观察请求，不停任何服务。
 
-**约束**（见工作区硬规则 1、2）：
-- 客户端半边必须手写 lazy-CJS，只 `require('react')`，`dsh.client.inject` 留空；
-- 组件渲染不得抛异常；
-- 必须能在宿主拿不到该信号时优雅退化到现在的时长闸。
-
-**验收**：页面在前台时短任务不弹；切到别的窗口后同样的任务会弹；
-关掉浏览器（无客户端）时退回时长闸行为。**并且**：客户端半边加载失败时不得影响 Web 界面。
+**仍然待做**：宿主是在装上浏览器半边之前启动的，得**重启一次 DSH** 才会把
+`dsh-ping/client.js` 放进启动图（`presence.browser.mjs` 会明确打印这个 note，
+并改为在页面里手工实例化 bundle，**不会把它伪装成通过**）。
 
 ### 1.2 免打扰时段
 

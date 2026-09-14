@@ -34,6 +34,8 @@ export interface NotifyLimits {
   cooldownMs: number
   /** Turns shorter than this are considered interactive and stay silent. */
   minTurnDurationMs: number
+  /** Suppress `done` while the Web page reports itself visible and focused. */
+  suppressWhenFocused: boolean
   /** Maximum characters of `detail` kept in the notice. */
   maxBodyChars: number
 }
@@ -51,6 +53,8 @@ export interface ShouldNotifyInput {
   isRoot: boolean
   /** When this session and kind last produced a notice. */
   lastNotifiedAt?: number
+  /** The user is looking at the Web page right now. Absent means "unknown". */
+  foreground?: boolean
   now: number
 }
 
@@ -71,6 +75,14 @@ export function shouldNotify(input: ShouldNotifyInput): NotifyVerdict {
   if (limits.cooldownMs > 0 && input.lastNotifiedAt !== undefined
     && input.now - input.lastNotifiedAt < limits.cooldownMs) {
     return { notify: false, reason: 'cooldown' }
+  }
+  // A live page is better evidence than a short turn: if the user has the
+  // tab visible and focused, they are reading the answer as it lands, and a
+  // toast would interrupt someone already looking at it. Only `done` is
+  // affected — an error or a pending decision is worth telling them about
+  // even while they watch.
+  if (fact.kind === 'done' && limits.suppressWhenFocused && input.foreground === true) {
+    return { notify: false, reason: 'page-focused' }
   }
   // The duration gate answers one question only: "could the user have walked
   // away?" A short turn means they were still at the keyboard, so a completion

@@ -17,6 +17,7 @@ import z from '@deepseek-ai/schemastery'
 import { buildNotice, shouldNotify, type NotifyFact, type NotifyLimits, type Notice } from './decide.ts'
 import { DEFAULTS, resolveConfig, type Config as PingConfig } from './defaults.ts'
 import { sendConsole, sendToast, sendWebhook, type ChannelLog, type ToastDelivery } from './channels.ts'
+import { MAX_BODY_BYTES, decodePresenceBody, isForeground, parsePresenceReport, type PresenceState } from './presence.ts'
 import {
   agentKey, cwdOf, errorText, isRootAgent, sessionKey, textOfMessage,
   type AgentErrorPayload, type AgentStatusPayload, type ApprovalRequestPayload, type LooseContext,
@@ -46,6 +47,8 @@ export const Config: z<PingConfig> = z.object({
     question: z.boolean().default(DEFAULTS.notifyOn.question),
   }).default(DEFAULTS.notifyOn),
   rootsOnly: z.boolean().default(DEFAULTS.rootsOnly),
+  suppressWhenFocused: z.boolean().default(DEFAULTS.suppressWhenFocused),
+  presenceTtlMs: z.natural().default(DEFAULTS.presenceTtlMs),
   cooldownMs: z.natural().default(DEFAULTS.cooldownMs),
   minTurnDurationMs: z.natural().default(DEFAULTS.minTurnDurationMs),
   channels: z.object({
@@ -102,8 +105,11 @@ export function apply(ctx: Context, config: PingConfig): void {
     rootsOnly: cfg.rootsOnly,
     cooldownMs: cfg.cooldownMs,
     minTurnDurationMs: cfg.minTurnDurationMs,
+    suppressWhenFocused: cfg.suppressWhenFocused,
     maxBodyChars: cfg.maxBodyChars,
   }
+  /** The newest report from a Web page, when there is one. */
+  let presence: PresenceState | undefined
   const turns = new Map<string, TurnState>()
   const lastNotified = new Map<string, number>()
   const lastAssistant = new Map<string, string>()
@@ -149,11 +155,18 @@ export function apply(ctx: Context, config: PingConfig): void {
     const now = Date.now()
     const key = `${fact.sessionId}:${fact.kind}`
     const lastNotifiedAt = lastNotified.get(key)
+    // Asked only for the fact being judged, and only when the feature is on:
+    // this is what lets a `done` notice stay silent while the answer is being
+    // read on screen, without changing any other kind.
+    const foreground = cfg.suppressWhenFocused
+      ? isForeground(presence, now, cfg.presenceTtlMs)
+      : false
     const verdict = shouldNotify({
       fact,
       limits,
       isRoot,
       ...(lastNotifiedAt === undefined ? {} : { lastNotifiedAt }),
+      foreground,
       now,
     })
     if (!verdict.notify) {
@@ -355,9 +368,61 @@ export function apply(ctx: Context, config: PingConfig): void {
   if (typeof host.inject === 'function') host.inject(['tools'], registerTestTool)
   else registerTestTool(host)
 
+  /**
+   * Accept a presence report from the browser half.
+   *
+   * The page posts on load, on focus/blur/visibility changes and on a
+   * heartbeat, so one report is enough to know the user is watching and a
+   * missing one means "fall back to the duration gate".
+   */
+  const registerPresenceRoute = (scope: LooseContext): void => {
+    if (!cfg.suppressWhenFocused) return
+    const webServer = scope.get<WebServerLike>('webServer')
+    if (webServer === undefined || typeof webServer.register !== 'function') return
+    try {
+      webServer.register({
+        kind: 'exact',
+        path: '/dsh-ping/presence',
+        handler: (request, response) => {
+          if (request.method !== 'POST') {
+            response.writeHead(405, { allow: 'POST' })
+            response.end()
+            return
+          }
+          const chunks: Buffer[] = []
+          let bytes = 0
+          request.on('data', (chunk: Buffer) => {
+            bytes += chunk.byteLength
+            // Stop buffering as soon as the body is too big: a page must not
+            // be able to grow this process's heap.
+            if (bytes <= MAX_BODY_BYTES) chunks.push(chunk)
+          })
+          request.on('end', () => {
+            const report = parsePresenceReport(decodePresenceBody(chunks), Date.now())
+            if (report === undefined) {
+              if (cfg.debug) log('ignored a malformed presence report')
+              response.writeHead(204)
+              response.end()
+              return
+            }
+            presence = report
+            if (cfg.debug) log(`presence: visible=${String(report.visible)} focused=${String(report.focused)}`)
+            response.writeHead(204)
+            response.end()
+          })
+        },
+      })
+    } catch (error) {
+      log(`could not expose the presence route: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  if (cfg.suppressWhenFocused && typeof host.inject === 'function') host.inject(['webServer'], registerPresenceRoute)
+  else registerPresenceRoute(host)
+
   const enabled = Object.entries(cfg.channels)
     .filter(([, on]) => on)
     .map(([channel]) => channel)
     .join('+')
-  log(`ready — channels=${enabled} rootsOnly=${String(cfg.rootsOnly)} cooldown=${String(cfg.cooldownMs)}ms`)
+  log(`ready — channels=${enabled} rootsOnly=${String(cfg.rootsOnly)} cooldown=${String(cfg.cooldownMs)}ms`
+    + ` focusedSuppression=${String(cfg.suppressWhenFocused)}`)
 }

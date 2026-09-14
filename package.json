@@ -17,6 +17,7 @@
       "default": "./lib/index.js"
     },
     "./smoke": "./lib/smoke.js",
+    "./client": "./client/index.js",
     "./package.json": "./package.json"
   },
   "bin": {
@@ -25,6 +26,7 @@
   "files": [
     "lib",
     "bin",
+    "client",
     "cordis.patch.yml",
     "README.md",
     "DESIGN.md"
@@ -50,6 +52,10 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
     }
   },
   "keywords": [

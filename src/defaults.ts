@@ -25,6 +25,15 @@ export interface Config {
    * always notify. Set to 0 to be told about every turn.
    */
   minTurnDurationMs: number
+  /**
+   * Stay silent about completed turns while the Web page is visible and
+   * focused, because the user is reading the answer themselves. Applies to
+   * `done` only; errors and pending decisions notify either way. Needs the
+   * browser half to report presence — without it this changes nothing.
+   */
+  suppressWhenFocused: boolean
+  /** How long a presence report stays valid before the page counts as unseen. */
+  presenceTtlMs: number
   /** Enabled delivery channels. */
   channels: { toast: boolean; console: boolean; webhook: boolean }
   /** Webhook destination; empty disables the channel even when enabled. */
@@ -56,6 +65,8 @@ export const DEFAULTS: Config = {
   rootsOnly: true,
   cooldownMs: 30_000,
   minTurnDurationMs: 20_000,
+  suppressWhenFocused: true,
+  presenceTtlMs: 45_000,
   channels: { toast: true, console: true, webhook: false },
   webhookUrl: '',
   webhookTimeoutMs: 5_000,

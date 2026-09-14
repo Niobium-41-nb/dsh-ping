@@ -1,0 +1,56 @@
+# Typecheck and every host-side test suite, on every push.
+#
+# Runs on Windows on purpose: the delivery channel is a Windows toast driven
+# through in-box PowerShell 5.1, which does not exist elsewhere. The plugin
+# degrades to console/webhook on other platforms — that path is not what this
+# check is about.
+#
+# `tests/toast.e2e.mjs` is deliberately NOT here: it really does pop a desktop
+# notification and reads the notification centre back, so it is a local,
+# opt-in check. `tests/presence.browser.mjs` needs a running Web GUI and Chrome;
+# it skips (not passes) without them, so it is local too.
+name: check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      # No `cache:` on purpose: this repository has no pnpm-lock.yaml, and
+      # setup-node's pnpm cache fails outright when there is no lockfile.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck
+        run: node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit
+
+      # The tests import the TypeScript sources directly (`--experimental-strip-types`),
+      # so no build step is needed here.
+      - name: Test — the decision core
+        run: node --experimental-strip-types tests/decide.test.mjs
+
+      - name: Test — the host plugin
+        run: node --experimental-strip-types tests/plugin.test.mjs
+
+      - name: Test — the presence signal
+        run: node --experimental-strip-types tests/presence.test.mjs
+
+      - name: Test — the browser half
+        run: node tests/client.test.mjs
+
+      - name: Test — the webhook channel
+        run: node --experimental-strip-types tests/webhook.test.mjs

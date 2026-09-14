@@ -43,6 +43,7 @@ function limits(overrides = {}) {
     rootsOnly: true,
     cooldownMs: 10_000,
     minTurnDurationMs: 0,
+    suppressWhenFocused: true,
     maxBodyChars: 180,
     ...overrides,
   }
@@ -136,6 +137,59 @@ eq(
   shouldNotify({ fact: { kind: 'approval', sessionId: 's1' }, limits: limits(), isRoot: true, lastNotifiedAt: 1000, now: 2000 }).notify,
   false,
 )
+
+process.stdout.write('\nshouldNotify: page presence\n')
+{
+  const long = { kind: 'done', sessionId: 's1', durationMs: 600_000 }
+  eq(
+    'a focused page suppresses a completion even after a long turn',
+    shouldNotify({ fact: long, limits: limits(), isRoot: true, foreground: true, now: 0 }).reason,
+    'page-focused',
+  )
+  eq(
+    'an unfocused page does not suppress it',
+    shouldNotify({ fact: long, limits: limits(), isRoot: true, foreground: false, now: 0 }).notify,
+    true,
+  )
+  eq(
+    'a page that never reported falls back to the duration gate',
+    shouldNotify({ fact: long, limits: limits(), isRoot: true, now: 0 }).notify,
+    true,
+  )
+  eq(
+    'a page that never reported still gates a short turn',
+    shouldNotify({ fact: { ...long, durationMs: 1000 }, limits: limits({ minTurnDurationMs: 20_000 }), isRoot: true, now: 0 }).reason,
+    'too-short',
+  )
+  eq(
+    'the switch turns the whole thing off',
+    shouldNotify({ fact: long, limits: limits({ suppressWhenFocused: false }), isRoot: true, foreground: true, now: 0 }).notify,
+    true,
+  )
+  for (const kind of ['error', 'approval', 'question']) {
+    eq(
+      `a focused page never suppresses ${kind}`,
+      shouldNotify({ fact: { kind, sessionId: 's1' }, limits: limits(), isRoot: true, foreground: true, now: 0 }).notify,
+      true,
+    )
+  }
+  eq(
+    'a disabled kind is still reported as disabled, not as focused',
+    shouldNotify({
+      fact: long,
+      limits: limits({ kinds: { done: false, error: true, approval: true, question: true } }),
+      isRoot: true,
+      foreground: true,
+      now: 0,
+    }).reason,
+    'kind-disabled:done',
+  )
+  eq(
+    'cooldown outranks the presence gate in the reported reason',
+    shouldNotify({ fact: long, limits: limits(), isRoot: true, foreground: true, lastNotifiedAt: 1000, now: 2000 }).reason,
+    'cooldown',
+  )
+}
 
 process.stdout.write('\nbuildToastXml\n')
 const xml = buildToastXml({ title: 'T', lines: ['L1', 'L2'] }, { appId: '', url: 'http://127.0.0.1:3080/', sound: 'ms-winsoundevent:Notification.Default', long: true })

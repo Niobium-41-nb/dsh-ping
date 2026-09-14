@@ -10,6 +10,7 @@
  * Run: node --experimental-strip-types tests/plugin.test.mjs
  */
 
+import { EventEmitter } from 'node:events'
 import { apply } from '../src/index.ts'
 import { DEFAULTS } from '../src/defaults.ts'
 
@@ -56,6 +57,40 @@ function makeHost(services = {}) {
       for (const { listener } of listeners.get(name) ?? []) listener(...args)
     },
   }
+}
+
+/** A Web server stub that records the routes a plugin registers. */
+function makeRouteHarness() {
+  const routes = []
+  const webServer = {
+    register(route) {
+      routes.push(route)
+      return () => {}
+    },
+  }
+  return { webServer, routes }
+}
+
+/** Drive one registered route with a hand-built request, and capture the reply. */
+function callRoute(route, { method = 'POST', body = '' } = {}) {
+  const request = new EventEmitter()
+  request.method = method
+  const response = {
+    status: 0,
+    headers: {},
+    body: '',
+    writeHead(status, headers) {
+      response.status = status
+      response.headers = headers ?? {}
+    },
+    end(value) {
+      if (value !== undefined) response.body = String(value)
+    },
+  }
+  route.handler(request, response)
+  if (body !== '') request.emit('data', Buffer.from(body, 'utf8'))
+  request.emit('end')
+  return response
 }
 
 /** Capture everything the plugin writes to stderr. */
@@ -302,6 +337,145 @@ process.stdout.write('\na disabled plugin does nothing\n')
   err.stop()
   ok('registers no listeners', !host.has('agent/status'))
   ok('says so on stderr', err.text.includes('disabled by configuration'), err.text)
+}
+
+process.stdout.write('\nthe presence route\n')
+{
+  const harness = makeRouteHarness()
+  const host = makeHost({ ...SERVICES, webServer: harness.webServer })
+  const err = captureStderr()
+  apply(host.ctx, BASE)
+  err.stop()
+  ok('registers one route', harness.routes.length === 1, String(harness.routes.length))
+  ok('at the plugin-namespaced path', harness.routes[0]?.path === '/dsh-ping/presence', String(harness.routes[0]?.path))
+  ok('as an exact route', harness.routes[0]?.kind === 'exact', String(harness.routes[0]?.kind))
+}
+
+process.stdout.write('\na focused page silences completions\n')
+{
+  const harness = makeRouteHarness()
+  const host = makeHost({ ...SERVICES, webServer: harness.webServer })
+  const err = captureStderr()
+  apply(host.ctx, { ...BASE, debug: true })
+  const response = callRoute(harness.routes[0], { body: JSON.stringify({ visible: true, focused: true }) })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'running' })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'idle' })
+  err.stop()
+  ok('the report is accepted', response.status === 204, String(response.status))
+  ok('the completion stays silent', !err.text.includes('任务完成'), err.text)
+  ok('and the reason is recorded', err.text.includes('page-focused'), err.text)
+}
+
+process.stdout.write('\nan unfocused page gets its notifications back\n')
+{
+  const harness = makeRouteHarness()
+  const host = makeHost({ ...SERVICES, webServer: harness.webServer })
+  const err = captureStderr()
+  apply(host.ctx, BASE)
+  callRoute(harness.routes[0], { body: JSON.stringify({ visible: true, focused: false }) })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'running' })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'idle' })
+  err.stop()
+  ok('a visible but unfocused page still notifies', err.text.includes('任务完成'), err.text)
+}
+{
+  const harness = makeRouteHarness()
+  const host = makeHost({ ...SERVICES, webServer: harness.webServer })
+  const err = captureStderr()
+  apply(host.ctx, BASE)
+  callRoute(harness.routes[0], { body: JSON.stringify({ visible: false, focused: true }) })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'running' })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'idle' })
+  err.stop()
+  ok('a hidden page still notifies', err.text.includes('任务完成'), err.text)
+}
+
+process.stdout.write('\na stale report stops mattering\n')
+{
+  const harness = makeRouteHarness()
+  const host = makeHost({ ...SERVICES, webServer: harness.webServer })
+  const err = captureStderr()
+  apply(host.ctx, { ...BASE, presenceTtlMs: 40 })
+  callRoute(harness.routes[0], { body: JSON.stringify({ visible: true, focused: true }) })
+  await new Promise((resolve) => { setTimeout(resolve, 60) })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'running' })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'idle' })
+  err.stop()
+  ok('a report past its ttl is ignored', err.text.includes('任务完成'), err.text)
+}
+
+process.stdout.write('\nattention events ignore the page\n')
+{
+  const harness = makeRouteHarness()
+  const host = makeHost({ ...SERVICES, webServer: harness.webServer })
+  const err = captureStderr()
+  apply(host.ctx, BASE)
+  callRoute(harness.routes[0], { body: JSON.stringify({ visible: true, focused: true }) })
+  host.emit('approval/request', { agent: ROOT_AGENT, toolName: 'bash' }, () => Promise.resolve({}))
+  host.emit('agent/error', { agent: ROOT_AGENT, error: new Error('boom') })
+  err.stop()
+  ok('a pending approval is still announced', err.text.includes('等你批准'), err.text)
+  ok('an error is still announced', err.text.includes('DSH · 出错了'), err.text)
+}
+
+process.stdout.write('\nthe route refuses what it cannot trust\n')
+{
+  const harness = makeRouteHarness()
+  const host = makeHost({ ...SERVICES, webServer: harness.webServer })
+  const err = captureStderr()
+  apply(host.ctx, BASE)
+  const route = harness.routes[0]
+  const badJson = callRoute(route, { body: 'not json at all' })
+  const badTypes = callRoute(route, { body: JSON.stringify({ visible: 'yes', focused: 1 }) })
+  const missing = callRoute(route, { body: JSON.stringify({}) })
+  const wrongMethod = callRoute(route, { method: 'GET' })
+  const oversized = callRoute(route, { body: `{"visible":true,"focused":true,"pad":"${'x'.repeat(5000)}"}` })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'running' })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'idle' })
+  err.stop()
+  ok('a malformed body is not an error', badJson.status === 204, String(badJson.status))
+  ok('a non-boolean flag is refused', badTypes.status === 204, String(badTypes.status))
+  ok('an empty body is refused', missing.status === 204, String(missing.status))
+  ok('a non-POST is refused', wrongMethod.status === 405, String(wrongMethod.status))
+  ok('the refusal names the allowed method', wrongMethod.headers?.allow === 'POST', JSON.stringify(wrongMethod.headers))
+  ok('an oversized body is ignored', oversized.status === 204, String(oversized.status))
+  ok('none of them silenced the completion', err.text.includes('任务完成'), err.text)
+}
+
+process.stdout.write('\nthe feature can be turned off entirely\n')
+{
+  const harness = makeRouteHarness()
+  const host = makeHost({ ...SERVICES, webServer: harness.webServer })
+  const err = captureStderr()
+  apply(host.ctx, { ...BASE, suppressWhenFocused: false })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'running' })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'idle' })
+  err.stop()
+  ok('no route is registered', harness.routes.length === 0, String(harness.routes.length))
+  ok('completions are unaffected', err.text.includes('任务完成'), err.text)
+  ok('the ready line reports the setting', err.text.includes('focusedSuppression=false'), err.text)
+}
+
+process.stdout.write('\na host without a web server is not a failure\n')
+{
+  const host = makeHost(SERVICES)
+  const err = captureStderr()
+  apply(host.ctx, BASE)
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'running' })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'idle' })
+  err.stop()
+  ok('the plugin still works', err.text.includes('任务完成'), err.text)
+  ok('and nothing was reported as broken', !err.text.includes('could not expose'), err.text)
+}
+{
+  const host = makeHost({ ...SERVICES, webServer: { register: () => { throw new Error('route conflict') } } })
+  const err = captureStderr()
+  apply(host.ctx, BASE)
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'running' })
+  host.emit('agent/status', { agent: ROOT_AGENT, status: 'idle' })
+  err.stop()
+  ok('a route conflict does not break notifications', err.text.includes('任务完成'), err.text)
+  ok('a route conflict is reported', err.text.includes('could not expose the presence route'), err.text)
 }
 
 process.stdout.write(`\n${checks - failures.length}/${checks} checks passed\n`)

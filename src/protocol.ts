@@ -11,6 +11,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- the loose surface is the point. */
 
+import type { IncomingMessage, ServerResponse } from 'node:http'
+
 /** The subset of a cordis `Context` this plugin uses. */
 export interface LooseContext {
   on(name: string, listener: (...args: any[]) => any, options?: { prepend?: boolean }): unknown
@@ -76,10 +78,18 @@ export interface SessionTitleLike {
   get(session: unknown): { title?: unknown } | undefined
 }
 
+/** One route the Web server can serve for a plugin. */
+export interface WebRoute {
+  kind: 'exact' | 'prefix'
+  path: string
+  handler: (request: IncomingMessage, response: ServerResponse) => void | Promise<void>
+}
+
 /** `ctx.webServer` service. */
 export interface WebServerLike {
   port?: unknown
   host?: unknown
+  register?(route: WebRoute): () => void
 }
 
 /** `ctx.tools` service. */
