@@ -22,7 +22,10 @@
   `{kind:'done', title, lines, sessionId, at}`；端点返回 500 时 **console 通道照常**、
   stderr 有记录、事件总线没有被异常打穿；`webhookUrl` 为空或通道关闭时一个请求都不发。
 
-### 0.2 `captureEnvironment` 的默认值需要重新决策
+### 0.2 `captureEnvironment` 的默认值需要重新决策（**这条属于 `dsh-restart`，不是本仓库**）
+
+> 记在这里是笔误：`captureEnvironment` 是 `dsh-restart` 写 `launch.json` 的配置项，
+> 请到 `../dsh-restart/ROADMAP.md` 跟踪。下面这段原文保留，作为当时的判断依据。
 
 **现状**：默认 `true`，会把启动时的全部环境变量写进 `instances/<key>/launch.json`
 （本机实测 **97 个**，含 PATH、代理以及任何 `DEEPSEEK_*` 之类的凭据）。
@@ -95,7 +98,11 @@
 1. **与 `dsh-restart` 共享工具代码**：PowerShell 调用、base64/UTF-16LE 编码、最小环境白名单、
    原子写 —— 两边各写了一遍。抽 `dsh-plugin-kit` 时要保留"单文件可复制"的选项，
    因为这个插件刻意不依赖任何本地包（README 里承诺过）。
-2. **CI**：typecheck + `decide`/`plugin` 单测；**`toast.e2e.mjs` 必须排除**（需要 Windows + 真实桌面 + 会打扰人）。
+2. **CI** —— ✅ **已完成（2026-09-14）**：`.github/workflows/check.yml` 跑 typecheck + 五个测试文件
+   （decide / plugin / presence / client / webhook）。`runs-on: windows-latest`（通知通道就是
+   in-box PowerShell 5.1 的 toast）、**不配 pnpm 缓存**（没有 lockfile）。
+   `toast.e2e.mjs` 与 `presence.browser.mjs` 不入 CI：前者会真弹通知打扰人，后者需要 Web GUI +
+   Chrome 且"跳过不算通过"—— 两个都留在本机跑。
 3. **CHANGELOG**。
 4. **发布到 npm** —— ✅ **已完成（2026-09-13）**：以 `@vanadium-23/dsh-ping@0.1.0` 上线
    （`dsh-ping` 这个名字属于 yoyu-dev，只能用 scope 别名；脚本临时改名、发完还原）。
