@@ -122,6 +122,21 @@ function bodyOf(report) {
   }
 }
 
+/** HTTP statuses the host answered presence reports with, oldest first. */
+function statuses(cdp) {
+  const byRequest = new Map()
+  for (const event of cdp.events) {
+    if (event.method === 'Network.requestWillBeSent'
+      && String(event.params?.request?.url ?? '').includes(ROUTE)) {
+      byRequest.set(event.params.requestId, undefined)
+    }
+    if (event.method === 'Network.responseReceived' && byRequest.has(event.params?.requestId)) {
+      byRequest.set(event.params.requestId, event.params.response?.status)
+    }
+  }
+  return [...byRequest.values()]
+}
+
 /** Is the Web GUI up at all? */
 async function guiReachable() {
   try {
@@ -248,6 +263,17 @@ async function main() {
     const body = bodyOf(first[0])
     ok('the body is two booleans',
       typeof body?.visible === 'boolean' && typeof body?.focused === 'boolean', JSON.stringify(body))
+    if (bootGraphHasBundle) {
+      // Only meaningful when the running host has the browser half in its boot
+      // graph, i.e. it also has the route. A 404 here means the page is talking
+      // and nobody is listening — the failure mode this whole feature can have.
+      const answered = statuses(cdp).filter((status) => status !== undefined)
+      ok('the host accepts the report (2xx)',
+        answered.length >= 1 && answered.every((status) => status >= 200 && status < 300),
+        answered.join(','))
+    } else {
+      ok('the host route is not asserted while the host predates the install', true)
+    }
 
     const warnings = cdp.events
       .filter((event) => event.method === 'Runtime.consoleAPICalled' && event.params.type === 'warning')
