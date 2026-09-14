@@ -91,7 +91,7 @@ node --import tsx/esm apps/cli/src/bin.ts plugin --profile web add file:<PLUGINS
 **命令行**（不用启动 DSH，会真弹一条通知）：
 
 ```bash
-node <PLUGINS>/dsh-ping/lib/smoke.js 随便一句正文
+node lib/smoke.js 随便一句正文
 ```
 
 **会话里**：让模型调用 `dsh_ping_test` 工具，它会弹一条自检通知并回报走通了哪些通道。
