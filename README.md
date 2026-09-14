@@ -1,5 +1,7 @@
 # dsh-ping
 
+[![check](https://github.com/Niobium-41-nb/dsh-ping/actions/workflows/check.yml/badge.svg)](https://github.com/Niobium-41-nb/dsh-ping/actions/workflows/check.yml) [![npm](https://img.shields.io/npm/v/%40vanadium-23%2Fdsh-ping)](https://www.npmjs.com/package/@vanadium-23/dsh-ping) [![license](https://img.shields.io/github/license/Niobium-41-nb/dsh-ping)](https://github.com/Niobium-41-nb/dsh-ping/blob/master/LICENSE)
+
 给 DeepSeek Harness 用的**桌面通知插件**：任务跑完、出错、等你批准、等你回答的时候，弹一个
 Windows 原生通知，顺便在终端留一行。跑长任务时可以切走窗口，不用一直盯着页面。
 
